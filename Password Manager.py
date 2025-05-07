@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import os
+from tkinter import messagebox
 
 # Configure CustomTkinter
 ctk.set_appearance_mode("dark")
@@ -20,6 +21,7 @@ register_frame = ctk.CTkFrame(app)
 main_frame = ctk.CTkFrame(app)
 add_frame = ctk.CTkFrame(app)
 view_frame = ctk.CTkFrame(app)
+edit_frame = ctk.CTkFrame(app)  # New frame for editing passwords
 
 # ---------- PAGE SWITCHING ---------- #
 def show_main():
@@ -27,6 +29,7 @@ def show_main():
     register_frame.pack_forget()
     add_frame.pack_forget()
     view_frame.pack_forget()
+    edit_frame.pack_forget()
     main_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
 def show_add_password():
@@ -46,11 +49,17 @@ def back_to_login():
     register_frame.pack_forget()
     login_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
+def show_edit_passwords():
+    main_frame.pack_forget()
+    edit_frame.pack(fill="both", expand=True, padx=20, pady=20)
+    load_credentials_listbox()
+
 # ---------- NEWWWWWWW ---------- #
 def logout():
     main_frame.pack_forget()
     add_frame.pack_forget()
     view_frame.pack_forget()
+    edit_frame.pack_forget()
     login_user_entry.delete(0, ctk.END)
     login_pass_entry.delete(0, ctk.END)
     login_error.configure(text="")  # Also clears any old error message
@@ -136,6 +145,82 @@ def load_credentials():
 
     textbox.configure(state="disabled")
 
+# ---------- EDIT PASSWORDS FUNCTIONALITY ---------- #
+def load_credentials_listbox():
+    listbox.delete(0, ctk.END)
+    if os.path.exists(CREDENTIALS_FILE):
+        with open(CREDENTIALS_FILE, "r") as f:
+            lines = [line.strip() for line in f if line.strip()]
+            for line in lines:
+                listbox.insert(ctk.END, line)
+
+def delete_selected():
+    selected_indices = listbox.curselection()
+    if not selected_indices:
+        messagebox.showwarning("No selection", "Please select an entry to delete.")
+        return
+    index = selected_indices[0]
+    listbox.delete(index)
+    update_credentials_file()
+
+def edit_selected():
+    selected_indices = listbox.curselection()
+    if not selected_indices:
+        messagebox.showwarning("No selection", "Please select an entry to edit.")
+        return
+    index = selected_indices[0]
+    selected_item = listbox.get(index)
+    parts = selected_item.split(",")
+    if len(parts) != 3:
+        messagebox.showerror("Error", "Selected entry is malformed.")
+        return
+    entry_type, email, password = parts
+
+    # Create a new window for editing
+    edit_window = ctk.CTkToplevel(app)
+    edit_window.title("Edit Entry")
+    edit_window.geometry("400x300")
+
+    type_label = ctk.CTkLabel(edit_window, text="Type:")
+    type_label.pack(pady=5)
+    type_entry = ctk.CTkEntry(edit_window)
+    type_entry.insert(0, entry_type)
+    type_entry.pack(pady=5)
+
+    email_label = ctk.CTkLabel(edit_window, text="Email:")
+    email_label.pack(pady=5)
+    email_entry = ctk.CTkEntry(edit_window)
+    email_entry.insert(0, email)
+    email_entry.pack(pady=5)
+
+    password_label = ctk.CTkLabel(edit_window, text="Password:")
+    password_label.pack(pady=5)
+    password_entry = ctk.CTkEntry(edit_window)
+    password_entry.insert(0, password)
+    password_entry.pack(pady=5)
+
+    def save_changes():
+        new_type = type_entry.get().strip()
+        new_email = email_entry.get().strip()
+        new_password = password_entry.get().strip()
+        if not new_type or not new_email or not new_password:
+            messagebox.showwarning("Incomplete Data", "All fields are required.")
+            return
+        new_entry = f"{new_type},{new_email},{new_password}"
+        listbox.delete(index)
+        listbox.insert(index, new_entry)
+        update_credentials_file()
+        edit_window.destroy()
+
+    save_button = ctk.CTkButton(edit_window, text="Save Changes", command=save_changes)
+    save_button.pack(pady=10)
+
+def update_credentials_file():
+    entries = listbox.get(0, ctk.END)
+    with open(CREDENTIALS_FILE, "w") as f:
+        for entry in entries:
+            f.write(f"{entry}\n")
+
 # ---------- LOGIN PAGE ---------- #
 login_label = ctk.CTkLabel(login_frame, text="🔐 Login", font=ctk.CTkFont(size=32, weight="bold"))
 login_label.pack(pady=20)
@@ -155,6 +240,7 @@ login_button.pack(pady=10)
 register_link = ctk.CTkButton(login_frame, text="Register", command=show_register)
 register_link.pack(pady=5)
 
+# ---------- REGISTER PAGE ---------- #
 # ---------- REGISTER PAGE ---------- #
 register_label = ctk.CTkLabel(register_frame, text="📝 Register", font=ctk.CTkFont(size=32, weight="bold"))
 register_label.pack(pady=20)
@@ -178,61 +264,78 @@ back_login_btn = ctk.CTkButton(register_frame, text="Back to Login", command=bac
 back_login_btn.pack(pady=5)
 
 # ---------- MAIN PAGE ---------- #
-main_label = ctk.CTkLabel(main_frame, text="Password Manager", font=ctk.CTkFont(size=32, weight="bold"))
-main_label.pack(pady=40)
+main_label = ctk.CTkLabel(main_frame, text="🔐 Password Manager", font=ctk.CTkFont(size=32, weight="bold"))
+main_label.pack(pady=20)
 
-add_btn = ctk.CTkButton(main_frame, text="Add Password", command=show_add_password, width=200)
-add_btn.pack(pady=10)
+add_pass_btn = ctk.CTkButton(main_frame, text="Add Password", command=show_add_password)
+add_pass_btn.pack(pady=10)
 
-view_btn = ctk.CTkButton(main_frame, text="View Password", command=show_view_passwords, width=200)
-view_btn.pack(pady=10)
+view_pass_btn = ctk.CTkButton(main_frame, text="View Passwords", command=show_view_passwords)
+view_pass_btn.pack(pady=10)
 
-# ---------- NEWWWWWWW ---------- #
-logout_btn = ctk.CTkButton(main_frame, text="Logout", command=logout, width=200)
+edit_pass_btn = ctk.CTkButton(main_frame, text="Edit Passwords", command=show_edit_passwords)
+edit_pass_btn.pack(pady=10)
+
+logout_btn = ctk.CTkButton(main_frame, text="Logout", command=logout)
 logout_btn.pack(pady=10)
 
 # ---------- ADD PASSWORD PAGE ---------- #
-header_label = ctk.CTkLabel(add_frame, text="➕ ADD", font=ctk.CTkFont(size=32, weight="bold"), text_color="#FF66CC")
-header_label.pack(pady=(10, 20))
+add_label = ctk.CTkLabel(add_frame, text="➕ Add New Credential", font=ctk.CTkFont(size=24, weight="bold"))
+add_label.pack(pady=10)
 
-type_label = ctk.CTkLabel(add_frame, text="1] Type:", text_color="#B266FF", anchor="w")
-type_label.pack(fill="x")
-type_entry = ctk.CTkEntry(add_frame, placeholder_text="e.g., Facebook")
+type_entry = ctk.CTkEntry(add_frame, placeholder_text="Type (e.g., Gmail, Netflix)")
 type_entry.pack(pady=5)
 
-email_label = ctk.CTkLabel(add_frame, text="2] Email:", text_color="#B266FF", anchor="w")
-email_label.pack(fill="x")
-email_entry = ctk.CTkEntry(add_frame, placeholder_text="example@gmail.com")
+email_entry = ctk.CTkEntry(add_frame, placeholder_text="Email/Username")
 email_entry.pack(pady=5)
 
-password_label = ctk.CTkLabel(add_frame, text="3] Password:", text_color="#B266FF", anchor="w")
-password_label.pack(fill="x")
-password_entry = ctk.CTkEntry(add_frame, show="", placeholder_text="**********")
+password_entry = ctk.CTkEntry(add_frame, placeholder_text="Password", show="*")
 password_entry.pack(pady=5)
 
-button_frame = ctk.CTkFrame(add_frame, fg_color="transparent")
-button_frame.pack(pady=20)
+save_btn = ctk.CTkButton(add_frame, text="Save", command=save_credentials)
+save_btn.pack(pady=10)
 
-save_btn = ctk.CTkButton(button_frame, text="Save", width=100, command=save_credentials)
-save_btn.grid(row=0, column=0, padx=5)
-
-clear_btn = ctk.CTkButton(button_frame, text="All Clear", width=100, command=clear_inputs)
-clear_btn.grid(row=0, column=1, padx=5)
-
-back_btn = ctk.CTkButton(button_frame, text="Back", width=100, command=show_main)
-back_btn.grid(row=0, column=2, padx=5)
+back_btn = ctk.CTkButton(add_frame, text="Back", command=show_main)
+back_btn.pack(pady=5)
 
 # ---------- VIEW PASSWORD PAGE ---------- #
-view_label = ctk.CTkLabel(view_frame, text="Saved Credentials", font=ctk.CTkFont(size=28, weight="bold"), text_color="#66CCFF")
-view_label.pack(pady=(10, 10))
+view_label = ctk.CTkLabel(view_frame, text="📄 Saved Credentials", font=ctk.CTkFont(size=24, weight="bold"))
+view_label.pack(pady=10)
 
-textbox = ctk.CTkTextbox(view_frame, width=500, height=350, font=ctk.CTkFont(size=14))
+textbox = ctk.CTkTextbox(view_frame, width=500, height=350, wrap="word", state="disabled")
 textbox.pack(pady=10)
-textbox.configure(state="disabled")
 
 back_view_btn = ctk.CTkButton(view_frame, text="Back", command=show_main)
-back_view_btn.pack(pady=10)
+back_view_btn.pack(pady=5)
 
-# ---------- STARTUP ---------- #
+# ---------- EDIT PASSWORD PAGE ---------- #
+edit_label = ctk.CTkLabel(edit_frame, text="✏️ Edit Credentials", font=ctk.CTkFont(size=24, weight="bold"))
+edit_label.pack(pady=10)
+
+# We use tkinter.Listbox inside customtkinter
+from tkinter import Listbox, Scrollbar
+
+listbox_frame = ctk.CTkFrame(edit_frame)
+listbox_frame.pack(pady=10, fill="both", expand=True)
+
+scrollbar = Scrollbar(listbox_frame)
+scrollbar.pack(side="right", fill="y")
+
+listbox = Listbox(listbox_frame, yscrollcommand=scrollbar.set, width=60, height=15, font=("Courier", 12))
+listbox.pack(side="left", fill="both", expand=True)
+
+scrollbar.config(command=listbox.yview)
+
+edit_button = ctk.CTkButton(edit_frame, text="Edit Selected", command=edit_selected)
+edit_button.pack(pady=5)
+
+delete_button = ctk.CTkButton(edit_frame, text="Delete Selected", command=delete_selected)
+delete_button.pack(pady=5)
+
+back_edit_btn = ctk.CTkButton(edit_frame, text="Back", command=show_main)
+back_edit_btn.pack(pady=5)
+
+# ---------- START THE APP ---------- #
 login_frame.pack(fill="both", expand=True, padx=20, pady=20)
+
 app.mainloop()
