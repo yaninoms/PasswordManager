@@ -11,74 +11,39 @@ from cryptography.fernet import Fernet
 KEY_FILE = "key.key"
 CREDENTIALS_FILE = "savedcredentials.txt"
 
+# USER-SPECIFIC FILES
+CURRENT_USER = [None]  # Use a list for mutability in nested functions
 
-# LOAD/GENERATE KEY
-def load_or_create_key():
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, "rb") as f:
-            return f.read()
-    key = Fernet.generate_key()
-    with open(KEY_FILE, "wb") as f:
-        f.write(key)
-    return key
-
-# LOAD THE KEY
-key = load_or_create_key()
-fernet = Fernet(key)
-
-# ENCRYPTED PASSWORD
-def encrypt_password(password):
-    return fernet.encrypt(password.encode()).decode()
-
-# DECRYPTED PASSWORD
-def decrypt_password(enc_password):
-    return fernet.decrypt(enc_password.encode()).decode()
-
-
-
-# Configure CTk
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("dark-blue")
-
-# Files
-CREDENTIALS_FILE = "savedcredentials.txt"
-USER_CREDENTIALS_FILE = "user_credentials.txt"
-PIN_FILE = "pin.hash"
-KEY_FILE = "key.key"
-
-
-
-# --- ENCRYPTION --- #
-def generate_key():
-    key = Fernet.generate_key()
-    with open(KEY_FILE, 'wb') as f:
-        f.write(key)
-
-def load_key():
-    if not os.path.exists(KEY_FILE):
-        generate_key()
-    with open(KEY_FILE, 'rb') as f:
-        return f.read()
-
+def get_user_files(username):
+    return {
+        'CREDENTIALS_FILE': f"{username}_credentials.txt",
+        'PIN_FILE': f"{username}_pin.hash",
+        'KEY_FILE': f"{username}_key.key"
+    }
 
 # --- PIN --- #
 def hash_pin(pin):
     return hashlib.sha256(pin.encode()).hexdigest()
 
 def is_pin_set():
-    return os.path.exists(PIN_FILE)
+    username = CURRENT_USER[0]
+    files = get_user_files(username)
+    return os.path.exists(files['PIN_FILE']) and os.path.getsize(files['PIN_FILE']) > 0
 
 def verify_pin(input_pin):
+    username = CURRENT_USER[0]
+    files = get_user_files(username)
     if not is_pin_set():
         return False
-    with open(PIN_FILE, 'r') as f:
+    with open(files['PIN_FILE'], 'r') as f:
         stored_hash = f.read()
     return stored_hash == hash_pin(input_pin)
 
 def set_pin(pin):
-    with open(PIN_FILE, 'w') as f:
+    username = CURRENT_USER[0]
+    files = get_user_files(username)
+    with open(files['PIN_FILE'], 'w') as f:
         f.write(hash_pin(pin))
-
 
 # --- PIN Prompt  --- #
 def prompt_for_pin(callback):
@@ -129,14 +94,61 @@ def prompt_to_register_pin(callback):
     submit_btn = ctk.CTkButton(pin_window, text="Register", command=register)
     submit_btn.pack(pady=5)
 
-
-
 # REGISTER PIN
 def request_pin(callback):
     if is_pin_set():
         prompt_for_pin(callback)
     else:
         prompt_to_register_pin(callback)
+
+
+# --- ENCRYPTION --- #
+def generate_key(username):
+    key = Fernet.generate_key()  # Generate a unique key
+    files = get_user_files(username)
+    with open(files['KEY_FILE'], "wb") as key_file:  # Save the key to a file
+        key_file.write(key)
+    return key
+
+# Function to load an existing key from a file
+def load_key(username):
+    files = get_user_files(username)
+    try:
+        with open(files['KEY_FILE'], "rb") as key_file:
+            key = key_file.read()  # Read the key from the file
+        return key
+    except FileNotFoundError:
+        print(f"No key file found for user {username}.")
+        return None
+
+# Function to encrypt data using the user's key
+def encrypt_data(data, username):
+    key = load_key(username)
+    if key is None:
+        key = generate_key(username)
+    fernet = Fernet(key)
+    encrypted_data = fernet.encrypt(data.encode())
+    return encrypted_data.decode()  # Store as string
+
+# Function to decrypt data using the user's key
+def decrypt_data(encrypted_data, username):
+    key = load_key(username)
+    if key is None:
+        print(f"No key file found for user {username}.")
+        return None
+    fernet = Fernet(key)
+    decrypted_data = fernet.decrypt(encrypted_data.encode())  # Convert back to bytes
+    return decrypted_data.decode()
+
+# Configure CTk
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("dark-blue")
+
+# Files
+CREDENTIALS_FILE = "savedcredentials.txt"
+USER_CREDENTIALS_FILE = "user_credentials.txt"
+PIN_FILE = "pin.hash"
+KEY_FILE = "key.key"
 
 
 
@@ -187,6 +199,7 @@ def show_edit_passwords():
 
 # ---------- NEWWWWWWW ---------- #
 def logout():
+    CURRENT_USER[0] = None
     main_frame.pack_forget()
     add_frame.pack_forget()
     view_frame.pack_forget()
@@ -206,6 +219,13 @@ def check_login():
             for line in f:
                 saved_user, saved_pass = line.strip().split(",")
                 if username == saved_user and password == saved_pass:
+                    CURRENT_USER[0] = username
+                    # Initialize user files if they don't exist
+                    files = get_user_files(username)
+                    if not os.path.exists(files['CREDENTIALS_FILE']):
+                        open(files['CREDENTIALS_FILE'], 'w').close()
+                    if not os.path.exists(files['KEY_FILE']):
+                        generate_key(username)
                     show_main()
                     return
     login_error.configure(text="Invalid credentials.")
@@ -226,12 +246,23 @@ def register_user():
                     if username == line.strip().split(",")[0]:
                         reg_error.configure(text="Username already exists.")
                         return
+        
+        # Create user-specific files
+        files = get_user_files(username)
+        open(files['CREDENTIALS_FILE'], 'w').close()  # Create empty credentials file
+        generate_key(username)  # Generate encryption key for the user
+        
+        # Save user credentials
         with open(USER_CREDENTIALS_FILE, "a") as f:
             f.write(f"{username},{password}\n")
+        
+        CURRENT_USER[0] = username
         back_to_login()
 
 # ---------- SAVE & CLEAR ---------- #
 def save_credentials():
+    username = CURRENT_USER[0]
+    files = get_user_files(username)
     category = category_entry.get().strip()
     
     if category == "Login":
@@ -243,8 +274,8 @@ def save_credentials():
             messagebox.showwarning("Missing Fields", "Please fill in all fields.")
             return
             
-        encrypted_password = encrypt_password(entry_password)
-        with open(CREDENTIALS_FILE, "a") as f:
+        encrypted_password = encrypt_data(entry_password, username)
+        with open(files['CREDENTIALS_FILE'], "a") as f:
             f.write(f"Login|{entry_type}|{entry_email}|{encrypted_password}\n")
             
     elif category == "Credit Card":
@@ -257,8 +288,8 @@ def save_credentials():
             messagebox.showwarning("Missing Fields", "Please fill in all card fields.")
             return
             
-        encrypted_cvv = encrypt_password(card_cvv)
-        with open(CREDENTIALS_FILE, "a") as f:
+        encrypted_cvv = encrypt_data(card_cvv, username)
+        with open(files['CREDENTIALS_FILE'], "a") as f:
             f.write(f"Credit Card|{card_name}|{card_number}|{card_expiry}|{encrypted_cvv}\n")
             
     elif category == "Notes":
@@ -269,8 +300,8 @@ def save_credentials():
             messagebox.showwarning("Missing Fields", "Please fill in title and content.")
             return
             
-        encrypted_content = encrypt_password(content)
-        with open(CREDENTIALS_FILE, "a") as f:
+        encrypted_content = encrypt_data(content, username)
+        with open(files['CREDENTIALS_FILE'], "a") as f:
             f.write(f"Notes|{title}|{encrypted_content}\n")
     
     clear_inputs()
@@ -290,13 +321,15 @@ def clear_inputs():
 
 # ---------- LOAD & DISPLAY CREDENTIALS ---------- #
 def load_credentials():
+    username = CURRENT_USER[0]
+    files = get_user_files(username)
     textbox.configure(state="normal")
     textbox.delete("0.0", ctk.END)
 
-    if not os.path.exists(CREDENTIALS_FILE):
+    if not os.path.exists(files['CREDENTIALS_FILE']):
         textbox.insert(ctk.END, "No credentials file found.\n")
     else:
-        with open(CREDENTIALS_FILE, "r") as f:
+        with open(files['CREDENTIALS_FILE'], "r") as f:
             lines = [line.strip() for line in f if line.strip()]
 
         if not lines:
@@ -327,7 +360,7 @@ def load_credentials():
                         if category == "Login":
                             entry_type, email, enc_password = parts
                             try:
-                                password = decrypt_password(enc_password) if show_passwords[0] else "*****"
+                                password = decrypt_data(enc_password, username) if show_passwords[0] else "*****"
                             except:
                                 password = "[Error decrypting]"
                             textbox.insert(ctk.END,
@@ -340,7 +373,7 @@ def load_credentials():
                         elif category == "Credit Card":
                             card_name, card_number, card_expiry, enc_cvv = parts
                             try:
-                                cvv = decrypt_password(enc_cvv) if show_passwords[0] else "*****"
+                                cvv = decrypt_data(enc_cvv, username) if show_passwords[0] else "*****"
                             except:
                                 cvv = "[Error decrypting]"
                             textbox.insert(ctk.END,
@@ -354,7 +387,7 @@ def load_credentials():
                         elif category == "Notes":
                             title, enc_content = parts
                             try:
-                                content = decrypt_password(enc_content) if show_passwords[0] else "*****"
+                                content = decrypt_data(enc_content, username) if show_passwords[0] else "*****"
                             except:
                                 content = "[Error decrypting]"
                             textbox.insert(ctk.END,
@@ -400,9 +433,11 @@ visibility_switch.pack(pady=5)
 
 # CREDENTIALS IN "EDITING CREDENTIALS"
 def load_credentials_listbox():
+    username = CURRENT_USER[0]
+    files = get_user_files(username)
     listbox.delete(0, ctk.END)
-    if os.path.exists(CREDENTIALS_FILE):
-        with open(CREDENTIALS_FILE, "r") as f:
+    if os.path.exists(files['CREDENTIALS_FILE']):
+        with open(files['CREDENTIALS_FILE'], "r") as f:
             lines = [line.strip() for line in f if line.strip()]
             
             # Group credentials by category
@@ -478,11 +513,13 @@ def edit_selected():
             return
 
         # Read from file
-        if not os.path.exists(CREDENTIALS_FILE):
+        username = CURRENT_USER[0]
+        files = get_user_files(username)
+        if not os.path.exists(files['CREDENTIALS_FILE']):
             messagebox.showerror("Error", "Credentials file not found.")
             return
 
-        with open(CREDENTIALS_FILE, "r") as f:
+        with open(files['CREDENTIALS_FILE'], "r") as f:
             lines = [line.strip() for line in f if line.strip()]
 
         # Find the matching entry
@@ -529,7 +566,7 @@ def edit_selected():
         if category == "Login":
             entry_type, email, enc_password = parts[1:]
             try:
-                password = decrypt_password(enc_password)
+                password = decrypt_data(enc_password, username)
             except:
                 password = ""
 
@@ -566,11 +603,11 @@ def edit_selected():
                     messagebox.showwarning("Incomplete Data", "All fields are required.")
                     return
 
-                encrypted_password = encrypt_password(new_password)
+                encrypted_password = encrypt_data(new_password, username)
                 new_line = f"Login|{new_type}|{new_email}|{encrypted_password}"
                 
                 # Update the file
-                with open(CREDENTIALS_FILE, "r") as f:
+                with open(files['CREDENTIALS_FILE'], "r") as f:
                     all_lines = f.readlines()
                 
                 # Find and replace the line
@@ -579,7 +616,7 @@ def edit_selected():
                         all_lines[i] = new_line + "\n"
                         break
                 
-                with open(CREDENTIALS_FILE, "w") as f:
+                with open(files['CREDENTIALS_FILE'], "w") as f:
                     f.writelines(all_lines)
 
                 load_credentials_listbox()
@@ -588,7 +625,7 @@ def edit_selected():
         elif category == "Credit Card":
             card_name, card_number, card_expiry, enc_cvv = parts[1:]
             try:
-                cvv = decrypt_password(enc_cvv)
+                cvv = decrypt_data(enc_cvv, username)
             except:
                 cvv = ""
 
@@ -632,11 +669,11 @@ def edit_selected():
                     messagebox.showwarning("Incomplete Data", "All fields are required.")
                     return
 
-                encrypted_cvv = encrypt_password(new_cvv)
+                encrypted_cvv = encrypt_data(new_cvv, username)
                 new_line = f"Credit Card|{new_name}|{new_number}|{new_expiry}|{encrypted_cvv}"
                 
                 # Update the file
-                with open(CREDENTIALS_FILE, "r") as f:
+                with open(files['CREDENTIALS_FILE'], "r") as f:
                     all_lines = f.readlines()
                 
                 # Find and replace the line
@@ -645,7 +682,7 @@ def edit_selected():
                         all_lines[i] = new_line + "\n"
                         break
                 
-                with open(CREDENTIALS_FILE, "w") as f:
+                with open(files['CREDENTIALS_FILE'], "w") as f:
                     f.writelines(all_lines)
 
                 load_credentials_listbox()
@@ -654,7 +691,7 @@ def edit_selected():
         elif category == "Notes":
             title, enc_content = parts[1:]
             try:
-                content = decrypt_password(enc_content)
+                content = decrypt_data(enc_content, username)
             except:
                 content = ""
 
@@ -684,11 +721,11 @@ def edit_selected():
                     messagebox.showwarning("Incomplete Data", "All fields are required.")
                     return
 
-                encrypted_content = encrypt_password(new_content)
+                encrypted_content = encrypt_data(new_content, username)
                 new_line = f"Notes|{new_title}|{encrypted_content}"
                 
                 # Update the file
-                with open(CREDENTIALS_FILE, "r") as f:
+                with open(files['CREDENTIALS_FILE'], "r") as f:
                     all_lines = f.readlines()
                 
                 # Find and replace the line
@@ -697,7 +734,7 @@ def edit_selected():
                         all_lines[i] = new_line + "\n"
                         break
                 
-                with open(CREDENTIALS_FILE, "w") as f:
+                with open(files['CREDENTIALS_FILE'], "w") as f:
                     f.writelines(all_lines)
 
                 load_credentials_listbox()
@@ -709,8 +746,10 @@ def edit_selected():
     request_pin(after_pin)
 
 def update_credentials_file():
+    username = CURRENT_USER[0]
+    files = get_user_files(username)
     entries = listbox.get(0, ctk.END)
-    with open(CREDENTIALS_FILE, "w") as f:
+    with open(files['CREDENTIALS_FILE'], "w") as f:
         for entry in entries:
             f.write(f"{entry}\n")
 
