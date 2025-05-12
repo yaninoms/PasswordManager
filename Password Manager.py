@@ -226,7 +226,13 @@ def check_login():
                         open(files['CREDENTIALS_FILE'], 'w').close()
                     if not os.path.exists(files['KEY_FILE']):
                         generate_key(username)
-                    show_main()
+                    login_count = increment_login_count(username)
+                    def after_mfa():
+                        show_main()
+                    if login_count % 3 == 0:
+                        show_mfa_verify_prompt(username, after_mfa)
+                    else:
+                        show_main()
                     return
     login_error.configure(text="Invalid credentials.")
 
@@ -257,7 +263,39 @@ def register_user():
             f.write(f"{username},{password}\n")
         
         CURRENT_USER[0] = username
+        show_mfa_prompt(username)
+
+def show_mfa_prompt(username):
+    mfa_window = ctk.CTkToplevel(app)
+    mfa_window.title("Set MFA Question")
+    mfa_window.geometry("400x250")
+
+    label = ctk.CTkLabel(mfa_window, text="Set a security question for MFA:")
+    label.pack(pady=10)
+    question_entry = ctk.CTkEntry(mfa_window, placeholder_text="Enter your question")
+    question_entry.pack(pady=10)
+    answer_label = ctk.CTkLabel(mfa_window, text="Answer:")
+    answer_label.pack(pady=5)
+    answer_entry = ctk.CTkEntry(mfa_window, placeholder_text="Enter your answer")
+    answer_entry.pack(pady=10)
+
+    def save_mfa():
+        question = question_entry.get().strip()
+        answer = answer_entry.get().strip()
+        if not question or not answer:
+            label.configure(text="Both fields are required!", text_color="red")
+            return
+        files = get_user_files(username)
+        mfa_file = files['CREDENTIALS_FILE'].replace('_credentials.txt', '_mfa.txt')
+        with open(mfa_file, 'w') as f:
+            f.write(question + '\n')
+            f.write(answer + '\n')  # Store as plain text
+        mfa_window.destroy()
+        messagebox.showinfo("Success", "MFA question set!")
         back_to_login()
+
+    save_btn = ctk.CTkButton(mfa_window, text="Save", command=save_mfa)
+    save_btn.pack(pady=10)
 
 # ---------- SAVE & CLEAR ---------- #
 def save_credentials():
@@ -753,7 +791,53 @@ def update_credentials_file():
         for entry in entries:
             f.write(f"{entry}\n")
 
+def get_login_count(username):
+    files = get_user_files(username)
+    count_file = files['CREDENTIALS_FILE'].replace('_credentials.txt', '_login_count.txt')
+    if not os.path.exists(count_file):
+        return 0
+    with open(count_file, 'r') as f:
+        try:
+            return int(f.read().strip())
+        except:
+            return 0
 
+def increment_login_count(username):
+    files = get_user_files(username)
+    count_file = files['CREDENTIALS_FILE'].replace('_credentials.txt', '_login_count.txt')
+    count = get_login_count(username) + 1
+    with open(count_file, 'w') as f:
+        f.write(str(count))
+    return count
+
+def show_mfa_verify_prompt(username, on_success):
+    files = get_user_files(username)
+    mfa_file = files['CREDENTIALS_FILE'].replace('_credentials.txt', '_mfa.txt')
+    if not os.path.exists(mfa_file):
+        on_success()
+        return
+    with open(mfa_file, 'r') as f:
+        question = f.readline().strip()
+        correct_answer = f.readline().strip()
+
+    mfa_window = ctk.CTkToplevel(app)
+    mfa_window.title("MFA Verification")
+    mfa_window.geometry("400x200")
+    label = ctk.CTkLabel(mfa_window, text=question)
+    label.pack(pady=10)
+    answer_entry = ctk.CTkEntry(mfa_window, placeholder_text="Your answer")
+    answer_entry.pack(pady=10)
+
+    def check_answer():
+        answer = answer_entry.get().strip()
+        if answer.strip().lower() == correct_answer.strip().lower():
+            mfa_window.destroy()
+            on_success()
+        else:
+            label.configure(text="Incorrect answer. Try again.", text_color="red")
+
+    submit_btn = ctk.CTkButton(mfa_window, text="Submit", command=check_answer)
+    submit_btn.pack(pady=10)
 
 # ---------- LOGIN PAGE ---------- #
 login_label = ctk.CTkLabel(login_frame, text="🔐 Login", font=ctk.CTkFont(size=32, weight="bold"))
